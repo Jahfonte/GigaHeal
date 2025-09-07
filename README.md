@@ -108,7 +108,7 @@ Settings are saved per account in `GigaHealerDB`:
 - **WoW Version**: 1.12 (Turtle WoW)
 - **Dependencies**: Ace2 libraries (included)
 - **Recommended**: [TheoryCraft](https://github.com/tiffanyplus/TheoryCraft-Turtle) addon for precise mana affordability calculations
-- **Language**: Lua 5.1
+- **Language**: Lua 5.0 (Vanilla 1.12)
 
 **Note**: GigaHealer works standalone, but installing [TheoryCraft](https://github.com/tiffanyplus/TheoryCraft-Turtle) addon unlocks enhanced mana efficiency features including guaranteed spell castability.
 

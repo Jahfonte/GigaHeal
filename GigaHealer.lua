@@ -21,6 +21,7 @@ GigaHealer:RegisterDefaults("account", {
 local libHC = AceLibrary("HealComm-1.0")
 local libIB = AceLibrary("ItemBonusLib-1.0")
 local libSC = AceLibrary("SpellCache-1.0")
+local libGT = AceLibrary("Gratuity-2.0")
 
 -- Spell efficiency data from PDFs (Heal Per Mana ratios) - Complete Turtle WoW data
 local SPELL_EFFICIENCY = {
@@ -121,8 +122,21 @@ end
 -- New: Calculate spell mana cost
 -------------------------------------------------------------------------------
 function GigaHealer:GetSpellManaCost(spell, rank)
-    if SPELL_EFFICIENCY[spell] and SPELL_EFFICIENCY[spell][rank] then
-        return SPELL_EFFICIENCY[spell][rank].mana
+    if not spell or not rank then return 0 end
+    local _, _, spellId = libSC:GetSpellData(spell, rank)
+    if not spellId then return 0 end
+    libGT:SetSpell(spellId, BOOKTYPE_SPELL)
+    local lines = libGT:NumLines(30)
+    for i = 1, lines do
+        local left, right = libGT:GetLine(i)
+        if left then
+            local _, _, n = string.find(left, "(%d+)%s*[Mm][Aa][Nn][Aa]")
+            if n then return tonumber(n) or 0 end
+        end
+        if right then
+            local _, _, n = string.find(right, "(%d+)%s*[Mm][Aa][Nn][Aa]")
+            if n then return tonumber(n) or 0 end
+        end
     end
     return 0
 end
@@ -141,23 +155,13 @@ end
 -------------------------------------------------------------------------------
 function GigaHealer:GetHighestAffordableRank(spell, max_rank)
     local current_mana = UnitMana("player")
-    
-    -- Always ensure rank 1 is castable as absolute fallback
-    local rank1_cost = self:GetSpellManaCost(spell, 1)
-    if rank1_cost > 0 and current_mana < rank1_cost then
-        -- If we can't even afford rank 1, something is very wrong - still return rank 1
-        return 1
-    end
-    
     for rank = max_rank, 1, -1 do
         local mana_cost = self:GetSpellManaCost(spell, rank)
         if mana_cost > 0 and current_mana >= mana_cost then
             return rank
         end
     end
-    
-    -- Guaranteed fallback: rank 1 should always be affordable
-    return 1
+    return nil
 end
 
 -------------------------------------------------------------------------------
@@ -350,6 +354,8 @@ function GigaHealer:CastHeal(spellName)
         rank = self:GetOptimalRank(spell, unit, overheal)
         if rank then
             spellName = libSC:GetSpellNameText(spell, rank)
+        else
+            return
         end
     end
 
@@ -438,7 +444,7 @@ function GigaHealer:GetOptimalRank(spell, unit, overheal)
     
     -- Emergency mode: use maximum healing regardless of efficiency
     if emergency_mode then
-        return affordable_rank -- Use highest affordable rank for emergencies
+        return affordable_rank -- Use highest affordable rank for emergencies (or nil if none)
     end
     
     -- CORRECTED PRIORITY: Healing Need → Mana → Efficiency
@@ -491,7 +497,7 @@ function GigaHealer:GetOptimalRank(spell, unit, overheal)
     
     -- Step 2: If no rank provides adequate healing, use highest affordable (mana priority)
     if adequate_rank == nil then
-        return affordable_rank -- Best we can do with available mana
+        return affordable_rank -- Best we can do with available mana (or nil)
     end
     
     -- Step 3: Apply efficiency optimization ONLY within adequate healing range
@@ -518,11 +524,12 @@ function GigaHealer:GetOptimalRank(spell, unit, overheal)
     end
     
     -- CRITICAL FIX: Ensure final rank is actually affordable
+    if affordable_rank == nil then
+        return nil
+    end
     optimal_rank = math.min(optimal_rank, affordable_rank)
-    
-    -- ABSOLUTE SAFETY: If all else fails, guarantee we can cast something
     if not self:CanAffordSpell(spell, optimal_rank) then
-        optimal_rank = 1  -- Force rank 1 as last resort
+        return nil
     end
     
     --[[
@@ -549,9 +556,11 @@ function GigaHealer:Clique_CastSpell(clique, spellName, unit)
         local spell, rank = libSC:GetRanklessSpellName(spellName)
 
         if spell and rank == nil and libHC.Spells[spell] then
-            rank = self:GetOptimalRank(spellName, unit)
-            if rank then
-                spellName = libSC:GetSpellNameText(spell, rank)
+            local orank = self:GetOptimalRank(spell, unit)
+            if orank then
+                spellName = libSC:GetSpellNameText(spell, orank)
+            else
+                return
             end
         end
     end
@@ -567,9 +576,11 @@ function GigaHealer:CM_CastSpell(cm, spellName, unit)
         local spell, rank = libSC:GetRanklessSpellName(spellName)
 
         if spell and rank == nil and libHC.Spells[spell] then
-            rank = self:GetOptimalRank(spellName, unit)
-            if rank then
-                spellName = libSC:GetSpellNameText(spell, rank)
+            local orank = self:GetOptimalRank(spell, unit)
+            if orank then
+                spellName = libSC:GetSpellNameText(spell, orank)
+            else
+                return
             end
         end
     end
@@ -603,9 +614,11 @@ function GigaHealer:pfUI_ClickAction(pfui_uf, button)
                     local spell, rank = libSC:GetRanklessSpellName(spellName)
 
                     if spell and rank == nil and libHC.Spells[spell] then
-                        rank = self:GetOptimalRank(spellName, unit)
-                        if rank then
-                            pfUI_config.unitframes[key] = libSC:GetSpellNameText(spell, rank)
+                        local orank = self:GetOptimalRank(spell, unit)
+                        if orank then
+                            pfUI_config.unitframes[key] = libSC:GetSpellNameText(spell, orank)
+                        else
+                            pfUI_config.unitframes[key] = ""
                         end
                     end
                 end
@@ -672,12 +685,13 @@ function GigaHealer:pfUI_PFCast(msg)
     if spell and rank == nil and libHC.Spells[spell] then
         local unitstr = getProperTargetBasedOnMouseOver()
         if unitstr == nil then return end
-        rank = self:GetOptimalRank(msg, unitstr)
-        if rank then
-            self.hooks[SlashCmdList]["PFCAST"](libSC:GetSpellNameText(spell, rank)) -- mission accomplished
+        local orank = self:GetOptimalRank(spell, unitstr)
+        if orank then
+            self.hooks[SlashCmdList]["PFCAST"](libSC:GetSpellNameText(spell, orank))
             return
         end
+        return
     end
 
-    self.hooks[SlashCmdList]["PFCAST"](msg) -- fallback if we can't find optimal rank
+    self.hooks[SlashCmdList]["PFCAST"](msg)
 end
