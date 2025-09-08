@@ -2,7 +2,7 @@
 ## Title: GigaHealer
 ## Title-ruRU: ГигаХилер
 ## Author: Jah (Based on SmartHealer by Ogrisch/Garkin)
-## Version: 2.1
+## Version: 2.1.1
 ## Notes: Advanced healing addon with mana efficiency, adaptive downranking, and overheal prevention. Includes all SmartHealer features plus intelligent rank selection.
 ## Notes-ruRU: Продвинутый аддон лечения с эффективностью маны, адаптивным понижением ранга и предотвращением перелечения. Включает все функции SmartHealer плюс интеллектуальный выбор ранга.
 ## SavedVariables: GigaHealerDB

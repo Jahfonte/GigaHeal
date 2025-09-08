@@ -133,6 +133,21 @@ GigaHealer builds upon the excellent foundation of SmartHealer, which provided t
 
 This addon is free software. You can redistribute it and/or modify it under the terms of the GNU General Public License.
 
+## Version History
+
+### 2.1.1
+- **Fixed**: Critical error "'for' limit must be a number" when player has insufficient mana
+- **Improved**: Better error handling for edge cases with no affordable spell ranks
+
+### 2.1
+- Lua 5.0 compatibility (replace string.match)
+- Foolproof affordability across all heals/targets
+- Tooltip-based mana costs via Gratuity
+
+### 1.0
+- Initial release based on SmartHealer
+- Advanced healing with mana efficiency
+
 ## Support
 
 Report issues or suggestions on the [GitHub repository](https://github.com/Jahfonte/GigaHeal).

@@ -430,6 +430,11 @@ function GigaHealer:GetOptimalRank(spell, unit, overheal)
     -- Get highest affordable rank first
     local affordable_rank = self:GetHighestAffordableRank(spell, max_rank)
     
+    -- If no rank is affordable, return nil immediately
+    if not affordable_rank then
+        return nil
+    end
+    
     -- Check for emergency healing mode
     local emergency_mode = self:IsEmergencyHealing(unit)
     
@@ -444,7 +449,7 @@ function GigaHealer:GetOptimalRank(spell, unit, overheal)
     
     -- Emergency mode: use maximum healing regardless of efficiency
     if emergency_mode then
-        return affordable_rank -- Use highest affordable rank for emergencies (or nil if none)
+        return affordable_rank -- Use highest affordable rank for emergencies
     end
     
     -- CORRECTED PRIORITY: Healing Need → Mana → Efficiency
@@ -497,7 +502,7 @@ function GigaHealer:GetOptimalRank(spell, unit, overheal)
     
     -- Step 2: If no rank provides adequate healing, use highest affordable (mana priority)
     if adequate_rank == nil then
-        return affordable_rank -- Best we can do with available mana (or nil)
+        return affordable_rank -- Best we can do with available mana
     end
     
     -- Step 3: Apply efficiency optimization ONLY within adequate healing range
@@ -524,9 +529,6 @@ function GigaHealer:GetOptimalRank(spell, unit, overheal)
     end
     
     -- CRITICAL FIX: Ensure final rank is actually affordable
-    if affordable_rank == nil then
-        return nil
-    end
     optimal_rank = math.min(optimal_rank, affordable_rank)
     if not self:CanAffordSpell(spell, optimal_rank) then
         return nil
