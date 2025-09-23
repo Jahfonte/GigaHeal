@@ -1,5 +1,5 @@
 --Original idea of this addon is based on Ogrisch's LazySpell
---Enhanced by Claude for perfect healing efficiency and mana management
+--Enhanced for perfect healing efficiency and mana management
 
 GigaHealer = AceLibrary("AceAddon-2.0"):new("AceHook-2.1", "AceConsole-2.0", "AceDB-2.0")
 GigaHealer:RegisterDB("GigaHealerDB")
