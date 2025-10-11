@@ -243,7 +243,7 @@ end
 -------------------------------------------------------------------------------
 function GigaHealer:GetEnhancedSpellPower(spell, unit)
     local base_bonus, base_power, base_mod = 0, 0, 1
-    
+
     if TheoryCraft == nil then
         base_bonus = tonumber(libIB:GetBonus("HEAL"))
         base_power, base_mod = libHC:GetUnitSpellPower(unit, spell)
@@ -251,20 +251,22 @@ function GigaHealer:GetEnhancedSpellPower(spell, unit)
         base_bonus = base_bonus + buffpower
         base_mod = base_mod * buffmod
     end
-    
-    -- Enhanced coefficient calculation based on gear quality
-    local gear_bonus = 1.0
+
+    -- Enhanced coefficient calculation based on mana conservation
+    local efficiency_multiplier = 1.0
     local current_mana_pct = UnitMana("player") / UnitManaMax("player")
-    
-    -- Apply conservation level bonuses
-    for i, level in ipairs(self.db.account.conservation_levels) do
+
+    -- Apply conservation level bonuses (check in reverse to find most specific threshold)
+    for i = table.getn(self.db.account.conservation_levels), 1, -1 do
+        local level = self.db.account.conservation_levels[i]
         if current_mana_pct <= level.mana_pct then
-            gear_bonus = gear_bonus + level.efficiency_bonus
+            efficiency_multiplier = efficiency_multiplier + level.efficiency_bonus
             break
         end
     end
-    
-    return base_bonus, base_power * gear_bonus, base_mod
+
+    -- CRITICAL FIX: Apply bonus to YOUR +healing, not target buffs
+    return base_bonus * efficiency_multiplier, base_power, base_mod
 end
 
 -------------------------------------------------------------------------------

@@ -745,17 +745,20 @@ HealComm.Spells = {
 		[1] = function (SpellPower)
 			local _,_,_,_,talentRank,_ = GetTalentInfo(3,14)
 			local pMod = 2*talentRank/100 + 1
-			return (344*pMod+((2.5/3.5) * SpellPower))
+			-- Turtle WoW: Coefficient reduced from 71.42% to 61.42% (Patch 1.17.2)
+			return (344*pMod+(0.6142 * SpellPower))
 		end;
 		[2] = function (SpellPower)
 			local _,_,_,_,talentRank,_ = GetTalentInfo(3,14)
 			local pMod = 2*talentRank/100 + 1
-			return (435*pMod+((2.5/3.5) * SpellPower))
+			-- Turtle WoW: Coefficient reduced from 71.42% to 61.42% (Patch 1.17.2)
+			return (435*pMod+(0.6142 * SpellPower))
 		end;
 		[3] = function (SpellPower)
 			local _,_,_,_,talentRank,_ = GetTalentInfo(3,14)
 			local pMod = 2*talentRank/100 + 1
-			return (591*pMod+((2.5/3.5) * SpellPower))
+			-- Turtle WoW: Coefficient reduced from 71.42% to 61.42% (Patch 1.17.2)
+			return (591*pMod+(0.6142 * SpellPower))
 		end;
 	};
 	[L["Lesser Heal"]] = {
