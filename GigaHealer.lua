@@ -270,6 +270,66 @@ function GigaHealer:GetEnhancedSpellPower(spell, unit)
 end
 
 -------------------------------------------------------------------------------
+-- New: Parse tooltip healing when theorycraft data is unavailable
+-------------------------------------------------------------------------------
+function GigaHealer:GetTooltipAverageHeal(spell, rank)
+    local _, _, spellId = libSC:GetSpellData(spell, rank)
+    if not spellId then return nil end
+
+    libGT:SetSpell(spellId, BOOKTYPE_SPELL)
+    local lines = libGT:NumLines(30)
+    local best_avg = nil
+
+    for i = 1, lines do
+        local left, right = libGT:GetLine(i)
+
+        for _, text in ipairs({ left, right }) do
+            if text then
+                -- Collect all numbers on the line (handles "X to Y" and "X - Y" styles)
+                local numbers = {}
+                for value in string.gmatch(text, "(%d[%-%d,]*)") do
+                    value = tonumber(string.gsub(value, ",", ""))
+                    if value then table.insert(numbers, value) end
+                end
+
+                if table.getn(numbers) >= 2 then
+                    local avg = (numbers[1] + numbers[2]) / 2
+                    best_avg = math.max(best_avg or 0, avg)
+                elseif table.getn(numbers) == 1 then
+                    best_avg = best_avg or numbers[1]
+                end
+            end
+        end
+    end
+
+    return best_avg
+end
+
+-------------------------------------------------------------------------------
+-- New: Unified heal estimator for every healing class (Turtle WoW compatible)
+-------------------------------------------------------------------------------
+function GigaHealer:EstimateHealAmount(spell, rank, bonus, power, mod)
+    -- 1) Prefer TheoryCraft because it already accounts for Turtle WoW ranks
+    if TheoryCraft ~= nil then
+        local spellData = TheoryCraft_GetSpellDataByName(spell, rank)
+        if spellData and spellData.averagehealnocrit then
+            return spellData.averagehealnocrit
+        end
+    end
+
+    -- 2) Use HealComm coefficients when available (covers Paladin/Priest/Druid/Shaman)
+    if libHC.Spells[spell] and libHC.Spells[spell][rank] then
+        local ok, amount = pcall(libHC.Spells[spell][rank], bonus or 0)
+        if ok and amount then
+            return (amount + (power or 0)) * (mod or 1)
+        end
+    end
+
+    -- 3) Fallback: tooltip parsing works for any Turtle WoW-specific spells/ranks
+    return self:GetTooltipAverageHeal(spell, rank)
+end
+
+-------------------------------------------------------------------------------
 -- New: Emergency mode detection
 -------------------------------------------------------------------------------
 function GigaHealer:IsEmergencyHealing(unit)
@@ -415,11 +475,7 @@ function GigaHealer:GetOptimalRank(spell, unit, overheal)
         return
     end
 
-    local bonus, power, mod
-    if TheoryCraft == nil then
-        -- Use enhanced spell power calculation
-        bonus, power, mod = self:GetEnhancedSpellPower(spell, unit)
-    end
+    local bonus, power, mod = self:GetEnhancedSpellPower(spell, unit)
     local missing = UnitHealthMax(unit) - UnitHealth(unit)
     local max_rank = tonumber(libSC.data[spell].Rank)
     overheal = overheal or self.db.account.overheal
@@ -464,20 +520,13 @@ function GigaHealer:GetOptimalRank(spell, unit, overheal)
         -- Just use the highest rank we can afford when mana is critically low
         -- This ensures we cast SOMETHING rather than failing
         adequate_rank = affordable_rank
-        
+
         -- But still prefer efficient lower ranks if they heal enough
         for rank = 1, affordable_rank do
-            local spellData = TheoryCraft ~= nil and TheoryCraft_GetSpellDataByName(spell, rank)
-            local heal_amount
-            
-            if spellData then
-                heal_amount = spellData.averagehealnocrit
-            else
-                heal_amount = (libHC.Spells[spell][rank](bonus) + power) * mod
-            end
-            
+            local heal_amount = self:EstimateHealAmount(spell, rank, bonus, power, mod)
+
             -- With low mana, accept 50% of needed healing as "good enough"
-            if heal_amount >= (missing * 0.5) then
+            if heal_amount and heal_amount >= (missing * 0.5) then
                 adequate_rank = rank
                 break -- Use this efficient rank
             end
@@ -485,17 +534,10 @@ function GigaHealer:GetOptimalRank(spell, unit, overheal)
     else
         -- Normal behavior when mana is not critically low
         for rank = 1, affordable_rank do
-            local spellData = TheoryCraft ~= nil and TheoryCraft_GetSpellDataByName(spell, rank)
-            local heal_amount
-            
-            if spellData then
-                heal_amount = spellData.averagehealnocrit
-            else
-                heal_amount = (libHC.Spells[spell][rank](bonus) + power) * mod
-            end
-            
+            local heal_amount = self:EstimateHealAmount(spell, rank, bonus, power, mod)
+
             -- Check if this rank provides adequate healing (with 10% overheal tolerance)
-            if heal_amount >= (missing * overheal) then
+            if heal_amount and heal_amount >= (missing * overheal) then
                 adequate_rank = rank
                 break -- Found the LOWEST rank that heals adequately
             end
@@ -514,17 +556,10 @@ function GigaHealer:GetOptimalRank(spell, unit, overheal)
     if self.db.account.auto_mode and conservation_mode and adequate_rank > 1 then
         -- In conservation mode, prefer rank 1 if it still heals adequately AND is affordable
         if self:CanAffordSpell(spell, 1) then
-            local rank1_spellData = TheoryCraft ~= nil and TheoryCraft_GetSpellDataByName(spell, 1)
-            local rank1_heal
-            
-            if rank1_spellData then
-                rank1_heal = rank1_spellData.averagehealnocrit
-            else
-                rank1_heal = (libHC.Spells[spell][1](bonus) + power) * mod
-            end
-            
+            local rank1_heal = self:EstimateHealAmount(spell, 1, bonus, power, mod)
+
             -- Use rank 1 if it still provides adequate healing
-            if rank1_heal >= (missing * overheal) then
+            if rank1_heal and rank1_heal >= (missing * overheal) then
                 optimal_rank = 1
             end
         end
