@@ -7,6 +7,7 @@ GigaHealer:RegisterDefaults("account", {
     overheal = 1.1, 
     healing_history = {}, 
     auto_mode = false,
+    debug = false,
     aggressive_conservation = true,
     emergency_threshold = 0.3,
     conservation_levels = {
@@ -74,6 +75,7 @@ function GigaHealer:OnEnable()
     self:RegisterChatCommand({ "/gh_auto" }, function(arg) GigaHealer:AutoMode(arg) end, "GIGAAUTO")
     self:RegisterChatCommand({ "/gh_emergency" }, function(arg) GigaHealer:EmergencyThreshold(arg) end, "GIGAEMERGENCY")
     self:RegisterChatCommand({ "/gh_stats" }, function(arg) GigaHealer:ShowStats(arg) end, "GIGASTATS")
+    self:RegisterChatCommand({ "/gh_debug" }, function(arg) GigaHealer:DebugMode(arg) end, "GIGADEBUG")
     self:Print('GigaHealer loaded - Advanced healing with mana efficiency, emergency mode, and statistics!')
 end
 
@@ -90,6 +92,28 @@ function GigaHealer:AutoMode(value)
     else
         local status = self.db.account.auto_mode and "enabled" or "disabled"
         self:Print("Auto mode is currently " .. status .. ". Use /gh_auto on|off to toggle")
+    end
+end
+
+-------------------------------------------------------------------------------
+-- New: Debug mode toggle
+-------------------------------------------------------------------------------
+function GigaHealer:DebugMode(value)
+    if value and string.lower(value) == "on" then
+        self.db.account.debug = true
+        self:Print("Debug mode enabled")
+    elseif value and string.lower(value) == "off" then
+        self.db.account.debug = false
+        self:Print("Debug mode disabled")
+    else
+        local status = self.db.account.debug and "enabled" or "disabled"
+        self:Print("Debug mode is currently " .. status .. ". Use /gh_debug on|off to toggle")
+    end
+end
+
+function GigaHealer:Debug(msg)
+    if self.db.account.debug then
+        self:Print(tostring(msg))
     end
 end
 
@@ -244,13 +268,18 @@ end
 function GigaHealer:GetEnhancedSpellPower(spell, unit)
     local base_bonus, base_power, base_mod = 0, 0, 1
 
-    if TheoryCraft == nil then
-        base_bonus = tonumber(libIB:GetBonus("HEAL"))
-        base_power, base_mod = libHC:GetUnitSpellPower(unit, spell)
-        local buffpower, buffmod = libHC:GetBuffSpellPower()
-        base_bonus = base_bonus + buffpower
-        base_mod = base_mod * buffmod
-    end
+    -- Always compute +healing and relevant modifiers, even when TheoryCraft is installed.
+    -- Reason: GigaHealer may fall back to HealComm/tooltip estimation when TheoryCraft
+    -- APIs are unavailable or return nil; in that case we must not under-estimate heals
+    -- by treating gear bonus healing as 0 (which forces max-rank casts).
+    base_bonus = tonumber(libIB:GetBonus("HEAL")) or 0
+    base_power, base_mod = libHC:GetUnitSpellPower(unit, spell)
+    base_power = tonumber(base_power) or 0
+    base_mod = tonumber(base_mod) or 1
+
+    local buffpower, buffmod = libHC:GetBuffSpellPower()
+    base_bonus = base_bonus + (tonumber(buffpower) or 0)
+    base_mod = base_mod * (tonumber(buffmod) or 1)
 
     -- Enhanced coefficient calculation based on mana conservation
     local efficiency_multiplier = 1.0
@@ -308,12 +337,45 @@ end
 -------------------------------------------------------------------------------
 -- New: Unified heal estimator for every healing class (Turtle WoW compatible)
 -------------------------------------------------------------------------------
+function GigaHealer:GetTheoryCraftSpellData(spell, rank)
+    if type(TheoryCraft_GetSpellDataByName) ~= "function" then
+        return nil
+    end
+
+    -- TheoryCraft implementations differ between versions (some accept rank, some don't).
+    -- Try a few common calling conventions, guarded by pcall to avoid breaking /heal.
+    local ok, data = pcall(TheoryCraft_GetSpellDataByName, spell, rank)
+    if ok and data then return data end
+
+    ok, data = pcall(TheoryCraft_GetSpellDataByName, spell)
+    if ok and data then return data end
+
+    local fullName = libSC and libSC.GetSpellNameText and libSC:GetSpellNameText(spell, rank)
+    if fullName then
+        ok, data = pcall(TheoryCraft_GetSpellDataByName, fullName)
+        if ok and data then return data end
+    end
+
+    -- Avoid chat spam; print once per spell per session.
+    if self.db and self.db.account and self.db.account.debug then
+        self._tcWarned = self._tcWarned or {}
+        if not self._tcWarned[spell] then
+            self._tcWarned[spell] = true
+            self:Debug("TheoryCraft_GetSpellDataByName returned nil for " .. tostring(spell) .. "; falling back to HealComm/tooltip estimates.")
+        end
+    end
+
+    return nil
+end
+
 function GigaHealer:EstimateHealAmount(spell, rank, bonus, power, mod)
     -- 1) Prefer TheoryCraft because it already accounts for Turtle WoW ranks
-    if TheoryCraft ~= nil then
-        local spellData = TheoryCraft_GetSpellDataByName(spell, rank)
-        if spellData and spellData.averagehealnocrit then
-            return spellData.averagehealnocrit
+    local spellData = self:GetTheoryCraftSpellData(spell, rank)
+    if spellData then
+        local amount = spellData.averagehealnocrit or spellData.averageheal or spellData.averagehealdone
+        amount = tonumber(amount)
+        if amount then
+            return amount
         end
     end
 
@@ -379,6 +441,24 @@ function GigaHealer:CastHeal(spellName)
         spellName = string.gsub(spellName, "^%s*(.-)%s*$", "%1") --strip leading and trailing space characters
         spellName = string.gsub(spellName, "%s+", " ")           --replace all space character with actual space
 
+        -- Support macro styles like: /heal "Flash Heal"
+        -- Quoted spell names won't match SpellCache rank parsing and can cause a fallback
+        -- to CastSpellByName with the raw input (often resulting in max-rank casts).
+        local _, _, quoted = string.find(spellName, '^"(.-)"$')
+        if quoted then
+            spellName = quoted
+        else
+            local _, _, squoted = string.find(spellName, "^'(.-)'$")
+            if squoted then
+                spellName = squoted
+            end
+        end
+
+        spellName = string.gsub(spellName, "^%s*(.-)%s*$", "%1")
+        if string.len(spellName) == 0 then
+            return
+        end
+
         local _, _, arg = string.find(spellName, "[,;]%s*(.-)$") --tries to find overheal multiplier (number after spell name, separated by "," or ";")
         if arg then
             local _, _, percent = string.find(arg, "(%d+)%%")
@@ -389,6 +469,11 @@ function GigaHealer:CastHeal(spellName)
             end
 
             spellName = string.gsub(spellName, "[,;].*", "") --removes everything after first "," or ";"
+        end
+
+        spellName = string.gsub(spellName, "^%s*(.-)%s*$", "%1")
+        if string.len(spellName) == 0 then
+            return
         end
 
         if not overheal then

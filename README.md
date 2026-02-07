@@ -22,6 +22,7 @@ Intelligent Downranking for Turtle WoW healers.
 - `/gh_emergency 0.3` - Set emergency threshold (default 30%)
 - `/gh_auto on/off` - Toggle auto efficiency mode
 - `/gh_overheal 1.2` - Set overheal multiplier
+- `/gh_debug on/off` - Toggle debug output (useful for troubleshooting rank selection)
 
 ## Installation
 
@@ -52,6 +53,9 @@ Intelligent Downranking for Turtle WoW healers.
 /heal Flash Heal
 /heal Heal
 ```
+
+**Macro tip**
+If your macro uses quotes (e.g. `/heal "Flash Heal"`), it will still work.
 
 **Paladin**
 ```
@@ -100,6 +104,7 @@ Works seamlessly with:
 Settings are saved per account in `GigaHealerDB`:
 - `overheal` - Default overheal multiplier (1.1 = 10% overheal)
 - `auto_mode` - Enable adaptive efficiency mode
+- `debug` - Enable debug output in chat
 - `emergency_threshold` - Health % to trigger emergency mode
 - `aggressive_conservation` - Use rank 1 when possible
 
@@ -134,6 +139,10 @@ GigaHealer builds upon the excellent foundation of SmartHealer, which provided t
 This addon is free software. You can redistribute it and/or modify it under the terms of the GNU General Public License.
 
 ## Version History
+
+### 2.1.2
+- **Fixed**: Downranking could skew toward highest ranks when TheoryCraft is installed but its spell data API returns nil (now falls back with correct +healing calculations)
+- **Added**: `/gh_debug on/off` for troubleshooting
 
 ### 2.1.1
 - **Fixed**: Critical error "'for' limit must be a number" when player has insufficient mana
